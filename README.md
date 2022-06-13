@@ -124,3 +124,8 @@ Naturally, therefore, even if the robot moves or rotates, the human trace does n
 I made a robot that promotes the facilities inside the library through the above program.
 
 By monitoring the entry and exit, different methods of publicity were applied to those who went out and those who came in.
+
+![KakaoTalk_20220614_005253732](https://user-images.githubusercontent.com/72921481/173395107-f1a97df8-cade-469d-bc7e-187db7fe8732.jpg)
+![KakaoTalk_20220614_005437867](https://user-images.githubusercontent.com/72921481/173395194-fab50018-8c77-4d59-b622-3073c711a374.jpg)
+![KakaoTalk_20220614_005502877](https://user-images.githubusercontent.com/72921481/173395129-4c056026-3d36-449c-82f0-d642726eeaef.png)
+
