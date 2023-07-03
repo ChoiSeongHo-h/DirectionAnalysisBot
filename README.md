@@ -1,131 +1,90 @@
-# Human_Direction_Tracking_Robot_ROS
+# DirectionAnalysisBot
+![image](https://github.com/ChoiSeongHo-h/DirectionAnalysisBot/assets/72921481/12f3f7d3-a45f-432b-a115-7f2f04be2e69)
+## Overview
+Robots use **different promotional strategies** depending on the **direction pedestrians are walking in**
+- Recording pedestrian trace in top view
+- Determining pedestrian walking direction 
 
-![KakaoTalk_20211203_174619626](https://user-images.githubusercontent.com/72921481/146729196-e181d587-d2dc-45db-8ab8-7606a2708b46.jpg)
-![KakaoTalk_20211204_012259209_01](https://user-images.githubusercontent.com/72921481/146729243-312b4493-6f36-4899-b0fc-91f4405270e0.jpg)
+## 1 Recording pedestrian trace in top view
+![image](https://github.com/ChoiSeongHo-h/DirectionAnalysisBot/assets/72921481/7e4cec5d-264b-41c9-a7ed-64ad37ed86ab)
 
+**Recording footprints** in the top view **before determining** the pedestrian's **walking direction**.
 
-As shown in the image above, it detects the status of people near the robot.
+The RGB image is converted to bounding boxes and object indices through a deep sort. The converted information is combined with the depth image and recorded as traces in the top view.
 
+### 1.1 Determining bounding boxes and object indices 
+The RGB image is passed through a deep sort object tracking model. This extracts pedestrians and their unique IDs from the image. 
 
-It tracks people who are near the robot, and who is heading for or exiting a certain section.
-
-
-In this system, the result of object tracking such as deepsort and 16-bit depth image must be input.
-
-
-This robot estimates the distance to the person based on the object tracking result and the depth image.
-
-
-It shows a human trace in a 2d top view.
-
-
-The robot can also track people's directions to know if they're going into or out of a specific area.
-
-
-First, get a 16-bit depth image. The pixel value is the distance in mm.
-
-
-For speed, this data is obtained by reference.
-
-
+### 1.2 Determining the depth of the bounding box
 ![Untitled](https://user-images.githubusercontent.com/72921481/146730922-8b5d0a05-e7e7-4c50-a948-526c65690e01.png)
 
-
-Then, a representative value of the distance of the person is obtained using the detection result and the depth value.
-
-
-There will be a method of averaging the bounding area, etc.
-
-
-But humans don't even fill the bounding box, and the average is vulnerable to outliers.
-
-
-Therefore, a value similar to the median value will be used as a representative of human distance.
-
-
-Do not use median values. We will use the value that exists in the top 35% idx.
-
-
-In the figure above, the process is as follows.
-
-
-1. for (line in lines)
-
-  1. Copies the line's data into a vector. → We can refer to it for computational benefit, but we will reuse the depth later, so we copy it.
-
-  2. Sort the vectors in ascending order.
-
-  3. Take the 35% point idx as a representative value of one line. Even if an outlier (0) exists, the outlier will not be taken unless it accounts for more than 35%.
-
-  Humans will be perceived as closer than the background by the camera, so there is a high probability that they are within 35% of the alignment.
+- Red box: Bounding box projected onto depth image
+- Black line: Pixel(depth) extraction line
   
-  Therefore, the 35% point value will be extracted from the human distance value. 
-  
-  If the human distance component in the black line in the figure is less than 35%, the distance value of the background will be taken.
-  
-2. The minimum non-zero value among the representative values ​​of each line is taken as the final representative value of the person.
+I want to determine the depth of the bounding box extracted from a deep sort. I use the following method:
+#### 1.2.1 Step 1: Extracting representative values per line 
+1. copy the pixel extraction line as a vector.
+2. sort the vectors in ascending order.
+3. select the pixel value located 35% to the left as a representative value for the line.
 
-  Even if there are several line segments with a human component of less than 35% (there will be a distant background at the 35% point, so the representative value of the line segment is large). Since the minimum of the line segment representatives is taken, the probability of taking the human representative is high.
-  
-  The width of the bounding box is determined by the width of the person. The tighter the spacing between the lines, the higher the probability of taking the human representative value.
-  
-The reason why there is no line at the top → The tip of the head is less likely to be occupied by a person more than 35%
-  
-The reason why there is no line segment below → Because the depth of the floor closer than the person can be taken
-  
-The reason why there is no line segment to both sides → Because interference between multiple bounding boxes may occur
-  
-The above algorithm aims to improve the speed by row-direction operation, and reduces the amount of computation dramatically by checking sparsely.
-  
-Disadvantages of this algorithm: If there is an obstacle in front of a human, the depth of the obstacle is received.
+Pedestrians are perceived by the depth camera to be closer than the background, so they have a small depth value, which is also represented by a small value in the extracted line. With this logic, I set the value 35% to the left of the sorted lines (small depth value, close distance) as the representative value of one line.
+
+If the pedestrian occupies less than 35% of each line, the depth of the background is extracted. 
+
+This is similar to the OS-CFAR method of radar signal detection. 
+
+#### 1.2.2 Step 2: Determining the representative depth of a bounding box based on representative values per line
+1. take the lowest representative value extracted from each line.
+2. If the extracted value is an outlier (depth == 0.0), take another value.
+
+The background has a larger value than the pedestrian, so the minimum value is chosen to remove the depth of the background.
+
+#### 1.2.3 Understanding the algorithm
+The algorithm is driven by the assumption that any of the lines are occupied by pedestrians more than 35% of the time. This assumption is reasonable because the width of the bounding box reflects the width of the pedestrian. 
+
+There is no line at the top of the bounding box because it is unlikely that a pedestrian's head would occupy more than 35% of the line. There is also no line at the bottom of the bounding box. This is because the occupancy of the pedestrian's feet is similarly small, and the small depth difference between the background and the pedestrian is confusing.  There are margins on either side of each line segment, as interference between multiple bounding boxes can occur.
+
+The above algorithm improves speed by using rowwise operations and dramatically reduces computation by using sparse checks. It is about 10 times faster than clustering after analysing the histogram of bounding boxes.
+
+### 1.3 Getting traces based on the depth of a bounding box
+The robot records the position of the pedestrian in the top view based on the position of the bounding box in the image, the camera's angle of view, and the depth of the bounding box. Traces for each pedestrian are recorded based on the pedestrian's index.
+
+Lens distortion can be taken into account to more accurately record the pedestrian's position.
 
 
+## 2 Determining pedestrian walking direction
+![image](https://github.com/ChoiSeongHo-h/DirectionAnalysisBot/assets/72921481/b69e429f-91d1-41c5-ba14-5d7c2fb5855a)
+- Green line: Entrance to a shop
+- Blue line: Robot's field of view
+- Left: A pedestrian stops near the robot and shows interest in it.
+- Right : The pedestrian is leaving the store
 
-Next, we know the pixel position and distance value of detection, so if we only know the camera angle of view, we can know the angle of the camera and the object.
+**Determining** the **state** and **direction** of a **pedestrian** based on traces.
 
-Also, if you know the angle and distance, you can express the position of the object in the top view.
+### 2.1 Determining whether to stop a pedestrian using trace covariance  
+The robot calculates the covariance of the pedestrian's trace. If the determinant of the covariance is small but near the robot, the robot determines that the pedestrian is interested in the robot. If the covariance matrix is large, the robot believes that the pedestrian is moving.
 
-In the same way as above, traces of people can be found and statistical calculations can be performed.
+### 2.2 Determine a pedestrian's principal walking axis  
+If the determinant of the trace covariance is large, the robot believes that the pedestrian is moving.
+The robot uses the following procedure to determine the main walking axis:
+1. the robot applies PCA to the traces of the moving pedestrian and compares the magnitudes of the principal and minor components.
 
-Find the correlation coefficient to find the linearity of the trace. If the correlation coefficient is high, the person is walking towards somewhere.
+2. If the principal component is significantly larger than the minor component, the robot determines that the person is moving linearly and is aiming in a "certain" direction. 
 
-If it is difficult to obtain a correlation coefficient by walking in the horizontal or vertical direction, it is judged that the person is walking horizontally/vertically if it is sxx>>syy or syy>>sxx.
+3. Finally, the direction of the principal component is determined as the principal walking axis. The principal walking axis is represented by the light blue straight line in the figure on the right above. 
 
-Based on the previously obtained statistical data, linear regression is performed and it is determined whether the regression line passes through a specific area.
+### 2.3 Determining whether pedestrians enter or leave a store 
+The robot determines that the pedestrian is entering or leaving the store when the pedestrian's main walking axis intersects the store entrance.
+The store entrance is represented by the green line in the figure above. 
+However, the above method cannot distinguish whether the pedestrian is entering the store or leaving the store, so the robot determines this by dot producting the following two items:
+1. the vector from the centre of the trace to the centre of the store entrance
+2. the normalised sum of all vectors from the adjacent time t-1 trace element to the time t trace element.
 
-Find the intersections point and average of traces.
+If the value of the dot product is close to 1 (the direction is the same), it means that the pedestrian is entering the store, and if it is close to -1 (the direction is opposite), it means that the pedestrian is exiting the store.
 
-The direction of the mean at the intersection is the outgoing direction.
+If the robot tries to determine the direction using only the earliest and latest elements of the trace, as opposed to the above method, the direction determination will be very unstable. It has been experimentally shown that the above vector normalisation method increases the robustness of the direction determination.
 
-The trace of a person is stored as a vector, and the more past data it is, the more it is stored on the left.
+## 3 Configuration of the robot 
 
-Normalize the vector between the k+1th trace from the kth trace, add them all up, and normalize again. If so, this vector will be a vector representing the direction from the past to the present.
-
-Dot product with the vector from the intersection to the mean above.
-
-If it is close to 1, it is out, and if it is close to -1, it is in.
-
-There may be other methods other than the above normalization method for calculating the progress direction.
-
-For example, to find the direction of the sage's trace from the most past trace.
-
-However, these methods are vulnerable to outliers.
-
-The method I used for averaging the normalized vectors is very robust against outliers. This is because only simple directions are indicated.
-
-The trace of a person is stored in a vector, and this vector is stored in a vector again by index.
-
-The position of the person is determined relative to the robot.
-
-Since robots exist in an absolute coordinate system (arbitrary latitude, longitude, and direction), humans are also fixed on the absolute coordinate system.
-
-Naturally, therefore, even if the robot moves or rotates, the human trace does not change.
-
-I made a robot that promotes the facilities inside the library through the above program.
-
-By monitoring the entry and exit, different methods of publicity were applied to those who went out and those who came in.
-
-![KakaoTalk_20220614_005253732](https://user-images.githubusercontent.com/72921481/173395107-f1a97df8-cade-469d-bc7e-187db7fe8732.jpg)
-![KakaoTalk_20220614_005437867](https://user-images.githubusercontent.com/72921481/173395194-fab50018-8c77-4d59-b622-3073c711a374.jpg)
 ![KakaoTalk_20220614_005502877](https://user-images.githubusercontent.com/72921481/173395129-4c056026-3d36-449c-82f0-d642726eeaef.png)
 
